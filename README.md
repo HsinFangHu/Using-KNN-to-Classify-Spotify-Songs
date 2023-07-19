@@ -3,7 +3,7 @@
 
 💻 **Programming Language:** R <br>
 📚 **Libraries:** tidyverse, ggplot2, FNN, class <br>
-📌 **Professional Ability:** Data Cleaning, Feature Engineering,K-Nearest-Neighbor, Evaluation, Interpretation, Data Visualization <br>
+📌 **Professional Ability:** Data Cleaning, Feature Engineering, K-Nearest-Neighbor, Evaluation, Interpretation, Data Visualization <br>
 <br>
 
 ## Description
