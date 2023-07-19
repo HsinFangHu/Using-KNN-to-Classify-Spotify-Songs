@@ -1,0 +1,190 @@
+---
+title: "Using KNN Algorithm to Classify Spotify Songs Preference"
+author: "Hsin Fang Hu"
+date: "2023-03-16"
+output: html_document
+---
+## Description
+This project focuses on constructing a K-Nearest-Neighbor (KNN) classifier model using the Spotify dataset in R to anticipate the song preferences of a user. The primary objective is to classify songs as either "like" or "dislike" based on their inherent characteristics, such as features like 'energy', 'loudness', and 'valence'. The Spotify dataset, obtained from a popular music streaming platform, provides a diverse range of attributes for each song, which have been labeled as "like" or "dislike" according to user preferences. Two distinct datasets, spotify.csv (used as the training set) and spot100.csv (used as a song pool for prediction), were utilized in this analysis.
+
+## Objectives
+The main goal of this project is to develop a KNN classifier model that accurately predicts a user's song preferences using the Spotify dataset. By analyzing the training set, spotify.csv, the model will learn the relationships between song attributes and the user's labeled preferences. The model will then be applied to the song pool dataset, spot100.csv, to determine whether a selected song would be liked or disliked by the user. This project aims to explore the potential of recommending songs based on their intricate attributes, such as tempo and danceability, to provide personalized music recommendations tailored to a user's specific tastes. By achieving this objective, the project seeks to enhance the precision and appeal of song recommendations beyond traditional approaches based solely on artist and genre information.
+
+#### Choose our song
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+df <- read_csv("spotify_top_charts_22.csv")
+mysong <- df[33,]
+```
+First we randomly pick a song from the "spotify_top_charts_22.csv" file.
+The values for our song have the following categories:<br>
+danceability: 0.638<br>
+energy: 0.807<br>
+loudness: -2.81<br>
+speechiness: 0.0336<br>
+acousticness: 0.0495<br>
+instrumentalness: 0.0177<br>
+liveness: 0.101<br>
+tempo: 124.053<br>
+duration_ms: 240400<br>
+
+#### Data import
+```{r, message=FALSE, warning=FALSE}
+df2 <- read_csv("spotify.csv")
+str(df2)
+df2$target <- factor(df2$target)
+unique(df2$target)
+table(df2$target)
+
+anyNA(df2) #check for missing value
+nrow(df2[!complete.cases(df2),])
+```
+After reading the "spotify.csv" file, we observe the data set, we found that the data type of target (representing whether the user likes or dislikes) is num. So we first convert it to factor. And check if there are missing values in the dataset, and surprisingly there is no null value in this dataset.<br>
+
+#### Simplify variables
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+gsongs <- df2 %>%
+  group_by(target) %>%
+  summarise(danceability = mean(danceability),
+            energy = mean(energy),
+            loudness = mean(loudness),
+            speechiness = mean(speechiness),
+            acousticness = mean(acousticness),
+            instrumentalness = mean(instrumentalness),
+            liveness = mean(liveness),
+            tempo = mean(tempo),
+            duration_ms = mean(duration_ms))
+
+diffperc <- (gsongs[2,] - gsongs[1,])/gsongs[1,] * 100
+diffperc
+
+#Delete the variables whose values are very similar
+df2 <- df2 %>% 
+  select(-danceability, -energy, -loudness, -liveness, -tempo)
+#Delete the variables we don't need
+df2 <- subset(df2, select = -c(...1, key, mode, valence, time_signature))
+
+```
+First, we can divide the variables into two groups based on likes and dislikes, and examine the percentage difference in mean value between danceability, energy, loudness, speechiness, acousticness, instrumentalness, liveness, tempo, and duration_ms.<br>
+From the two groups we can see that there are some variables that show a percentage difference of 10% or more. The list is below:<br>
+speechiness: 35.20893<br>
+acousticness: -30.40153<br>
+instrumentalness: 91.45814<br>
+duration_ms: 10.27463<br>
+Based on the above list, we decided to keep these variables and remove others. Removing variables from a KNN model when those variables’ values are very similar for both outcome classes can help to simplify the model and reduce noise, leading to better performance and interpretability.<br>
+
+
+#### Partitioning dataset & Normalize variables
+```{r, message=FALSE, warning=FALSE}
+set.seed(02465878)
+df2 <- slice_sample(df2, prop=1)
+train <- slice_head(df2, prop = 0.6)
+valid <- slice_tail(df2, prop = 0.4)
+
+library(caret)
+norm_values <- preProcess(df2[, 1:4], method = c("center", "scale"))
+train_norm <- predict(norm_values, train[, 1:4])
+valid_norm <- predict(norm_values, valid[, 1:4])
+
+train_norm <- cbind(train_norm, train[, 5:7])
+valid_norm <- cbind(valid_norm, valid[, 5:7])
+```
+We first split the dataset into a training set and a validation set. Then, we standardized the predictor variables in both sets using the preProcess function. This standardization process ensures that variables with different scales are transformed to a common scale, making it easier to compare and model them. It's important to perform normalization after partitioning the dataset to prevent any information leakage from the validation set to the training set.<br>
+
+
+#### Building KNN Model
+```{r, message=FALSE, warning=FALSE, results='hide'}
+library(FNN)
+m1 <- knn(train=train_norm[,1:4], test=valid_norm[,1:4], cl=train_norm$target, k=7)
+confusionMatrix(m1,reference = as.factor(valid_norm$target))
+```
+In this step, we build a KNN model using the normalized data, and the validation set was used for model evaluation and prediction. In this case, K is set to 7, meaning the algorithm considers the 7 nearest neighbors when making predictions.<br>
+After obtaining the predictions (m1), we generates a confusion matrix to evaluate the accuracy of the predictions. The confusion matrix provides an evaluation of the KNN model's performance in classifying the observations in the validation dataset.<br>
+Here are the key statistics:<br>
+• Accuracy: The model correctly classified around 67.62% of the observations in the validation dataset.<br>
+• Confidence Interval (CI): The accuracy is estimated to be between 64.27% and 70.84% with 95% confidence.<br>
+• Sensitivity: The model correctly identified about 67.85% of the positive cases.<br>
+• Specificity: The model correctly identified about 67.40% of the negative cases.<br>
+• Balanced Accuracy: This considers both sensitivity and specificity and is about 67.62%.<br>
+A higher accuracy and balanced accuracy mean that the model is making quite accurate predictions, but there is still some potential to make it even better. We can further analyze and adjust the model to improve its predictions and get more accurate results.<br>
+
+
+#### Determining k-value for improvement
+```{r, message=FALSE, warning=FALSE}
+#Method 1 to check the highest accuracy
+neigh <- c(1:20)
+acc <- c()
+for(k in 1:length(neigh)){
+knn.pred <- knn(train=train_norm[,1:4], test=valid_norm[,1:4], cl=train_norm$target,
+          k)
+acc[k] <- mean(knn.pred==valid_norm$target)
+}
+ggplot() + geom_point(aes(x= 1:length(neigh), y=acc)) + geom_line(aes(x= 1:length(neigh), y=acc))
+
+#Method 2 to check the highest accuracy
+library(class)
+k_values <- seq(1, 20, by = 2)
+accuracy <- list()
+for (k in k_values) {
+  # Train the KNN model
+  knn_model <- knn(train=train_norm[,1:4], test=valid_norm[,1:4], cl=train_norm$target, k)
+  # Calculate the accuracy of the model
+  predicted_labels <- knn_model
+  true_labels <- valid_norm$target
+  accuracy[[as.character(k)]] <- sum(predicted_labels == true_labels) / length(true_labels)
+}
+# Find the k value with the highest accuracy
+max_k <- k_values[which.max(unlist(accuracy))]
+max_accuracy <- accuracy[[as.character(max_k)]]
+max_k
+max_accuracy
+
+library(ggplot2)
+# Convert the accuracy list to a data frame
+accuracy_df <- data.frame(k = k_values, accuracy = unlist(accuracy))
+
+# Create the plot
+ggplot(accuracy_df, aes(x = k, y = accuracy)) +
+  geom_line() +
+  labs(x = "k", y = "Accuracy", title = "Accuracy of KNN Models") +
+  theme_minimal()
+```
+<br>
+Here we use two methods to find the best k value. After trying out different values for "k," we discovered that the best k-value for this dataset is 17. With k=17, the model achieved an accuracy of around 69.23%, meaning it correctly predicted about 69.23% of the songs in the validation dataset. This accuracy is notably better than when we used k=7, which only had an accuracy of 67.62%.<br>
+The improvement shows that by considering 17 nearby songs, the model can make more accurate guesses about whether a user will like or dislike a song based on its features. So, k=17 seems to strike a good balance, allowing the model to perform better than before. It's essential to pick the right k-value to get the best predictions, and in this case, 17 worked well for us.<br>
+
+#### Building Second KNN Model
+```{r, warning=FALSE}
+m17 <- knn(train=train_norm[,1:4], test=valid_norm[,1:4], cl=train_norm$target,
+          k=17)
+confusionMatrix(m17,reference = as.factor(valid_norm$target))
+```
+The KNN model with k=17 produced the following evaluation metrics:<br>
+• Accuracy: The model correctly classified about 69.23% of the songs in the validation dataset.<br>
+• Confidence Interval (CI): The accuracy is estimated to be between 65.92% and 72.4% with 95% confidence.<br>
+• Sensitivity: The model correctly identified about 67.59% of the songs that the users liked.<br>
+• Specificity: The model correctly identified about 70.80% of the songs that the users disliked.<br>
+• Balanced Accuracy: The balanced accuracy considers both sensitivity and specificity, and it is around 69.20%.<br>
+In conclusion, we tried two methods to find the best k-value for the KNN model. The first model with k=7 was 67.62% accurate, but the second model with k=17 improved to 69.23% accuracy. Considering 17 nearby songs helped the model make better predictions about whether a user would like or dislike a song based on its features. The second model's balanced accuracy of 69.20% shows it can generalize well to new songs. Overall, the KNN model with k=17 shows promise for predicting song preferences based on audio features and could be used to create a music recommendation system that tailors song suggestions to individual users.<br>
+
+####See this user like our song or not?
+```{r, message=FALSE, warning=FALSE}
+mysong <- mysong %>% 
+  select(c(acousticness, duration_ms, instrumentalness, speechiness))
+mysong.norm <- predict(norm_values, mysong)
+nn <- knn(train=train_norm[,1:4], test = mysong.norm, cl =train_norm$target, k = 7)
+nn
+nearest_neighbors<-train_norm[(row.names(train_norm)[attr(nn, "nn.index")]),5:7]
+nearest_neighbors
+
+#k=17
+nn17 <- knn(train=train_norm[,1:4], test = mysong.norm, cl =train_norm$target, k = 17)
+nearest_neighbors2<-train_norm[row.names(train_norm)[attr(nn17, "nn.index")],5:7]
+nearest_neighbors2
+```
+First we normalize our song. Then perform KNN grouping again. Then based on the seven closest songs in the group our song is in, predict whether the user will like it or not. Fortunately the result is "1", which means the user might like it.<br>
+The neighbors of our song are these: "478" "87"  "105" "664" "174" "153" "272".<br>
+<br>
+Run the knn() function once using the above k value (k=17), we can see that for the neighbors, the 15 songs' indexs are: "478"  "87"   "105"  "664"  "174"  "153"  "272"  "432"  "441"  "7" "1049" "265"  "366"  "807"  "131".<br>
+<br>
